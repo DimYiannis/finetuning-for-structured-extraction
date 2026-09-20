@@ -1,0 +1,76 @@
+"""
+    graph schema: node/relationship types, and the Pydantic model handed
+    directly to Outlines for grammar-constrained extraction. Outlines compiles
+    ExtractionResult's JSON schema into the FSM that masks the model's
+    logits at every generated token. Same as in Graph-Rag
+"""
+
+from enum import Enum
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class NodeType(str, Enum):
+    FUNCTION = "Function" # unit py source
+    CLASS = "Class" # unit of py source
+    MODULE = "Module" # unit of py source
+    CONCEPT = "Concept" # md/text files
+    ENTITY = "Entity" # generall fallback
+    CHUNK = "Chunk" # structural, created in chunking phase
+
+
+class RelationType(str, Enum):
+    CALLS = "CALLS"
+    IMPORTS = "IMPORTS"
+    INHERITS_FROM = "INHERITS_FROM"
+    DEFINED_IN = "DEFINED_IN"
+    MENTIONED_IN = "MENTIONED_IN"
+    RELATES_TO = "RELATES_TO"
+    REFERENCES = "REFERENCES"
+
+
+# CHUNK is never something the model extracts - Chunk nodes already exist
+# from the chunking phase, before extraction runs.
+ExtractableNodeType = Literal[
+    NodeType.FUNCTION,
+    NodeType.CLASS,
+    NodeType.MODULE,
+    NodeType.CONCEPT,
+    NodeType.ENTITY,
+]
+
+# MENTIONED_IN is never emitted by the model either - loader.py adds it
+# automatically for every entity extracted from a given chunk, since it's
+# structurally implied (an entity extracted FROM a chunk is trivially
+# mentioned in it) rather than something worth spending the model's
+# constrained generation budget on.
+ExtractableRelationType = Literal[
+    RelationType.CALLS,
+    RelationType.IMPORTS,
+    RelationType.INHERITS_FROM,
+    RelationType.DEFINED_IN,
+    RelationType.RELATES_TO,
+    RelationType.REFERENCES,
+]
+
+
+class ExtractedEntity(BaseModel):
+    name: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_.]*$")
+    node_type: ExtractableNodeType
+
+
+class ExtractedRelationship(BaseModel):
+    subject: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_.]*$")
+    relation: ExtractableRelationType
+    target: str=Field(pattern=r"^[A-Za-z_][A-Za-z0-9_.]*$")
+
+
+class ExtractionResult(BaseModel):
+    """
+        one chunk's extraction output - the object passed to
+        outlines.generate.json(model, ExtractionResult).
+    """
+
+    entities: list[ExtractedEntity]
+    relationships: list[ExtractedRelationship]
