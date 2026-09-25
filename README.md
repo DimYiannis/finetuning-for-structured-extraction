@@ -1,6 +1,6 @@
 # Qwen3-0.6B LoRA fine-tune for schema-constrained triple extraction
 
-Fine-tuning Qwen3-0.6B with LoRA to extract knowledge-graph triples that conform to a fixed schema, and measuring how that compares to — and combines with — grammar-constrained decoding.
+Fine-tuning Qwen3-0.6B with LoRA to extract knowledge-graph triples that conform to a fixed schema.
 
 Companion to [constrained-graphrag](https://github.com/DimYiannis/Constrained-GraphRag), which uses the same model for entity/relation extraction and enforces the schema at decode time with [Outlines](https://github.com/dottxt-ai/outlines).
 
@@ -81,6 +81,8 @@ Raw outputs are saved under `results/`, not just aggregates.
 
 The user turn is the exact inference-time prompt from `src/extraction/prompts/`.
 
+**Corpus:** [vLLM v0.10.1](https://github.com/vllm-project/vllm/tree/v0.10.1) source (2,874 files), unpacked to `data/raw/vllm-0.10.1/`. Not committed — it is third-party code and fetched on demand (see [Setup](#setup)); the chunk text that is actually used lives inside the committed JSONL splits.
+
 ## Setup
 
 Python 3.10–3.13
@@ -89,12 +91,20 @@ Python 3.10–3.13
 uv sync
 ```
 
+Fetch the corpus:
+
+```bash
+mkdir -p data/raw
+curl -L https://github.com/vllm-project/vllm/archive/refs/tags/v0.10.1.tar.gz | tar -xz -C data/raw
+```
+
 Run from the repo root — `data.schema` resolves as a namespace package relative to it.
 
 ## Layout
 
 ```
 data/schema.py          node/relation types + ExtractionResult
+data/raw/               source corpus (gitignored, fetched in Setup)
 src/chunking/           AST (Python) and header-based (markdown/text) chunkers
 src/extraction/prompts/ code and text extraction prompts
 src/generate.py         constrained + unconstrained inference
