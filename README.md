@@ -81,7 +81,7 @@ Raw outputs are saved under `results/`, not just aggregates.
 
 The user turn is the exact inference-time prompt from `src/extraction/prompts/`.
 
-**Corpus:** [vLLM v0.10.1](https://github.com/vllm-project/vllm/tree/v0.10.1) source (2,874 files), unpacked to `data/raw/vllm-0.10.1/`. Not committed — it is third-party code and fetched on demand (see [Setup](#setup)); the chunk text that is actually used lives inside the committed JSONL splits.
+**Corpus:** the same corpus used by constrained-graphrag — [`data/raw/vllm-0.10.1`](https://github.com/DimYiannis/Constrained-GraphRag/tree/47a33e0fdb1790736c18333771c951679e837f8c/data/raw/vllm-0.10.1).
 
 ## Setup
 
@@ -91,20 +91,13 @@ Python 3.10–3.13
 uv sync
 ```
 
-Fetch the corpus:
-
-```bash
-mkdir -p data/raw
-curl -L https://github.com/vllm-project/vllm/archive/refs/tags/v0.10.1.tar.gz | tar -xz -C data/raw
-```
-
 Run from the repo root — `data.schema` resolves as a namespace package relative to it.
 
 ## Layout
 
 ```
 data/schema.py          node/relation types + ExtractionResult
-data/raw/               source corpus (gitignored, fetched in Setup)
+data/raw/               source corpus (gitignored; from constrained-graphrag, see Corpus)
 src/chunking/           AST (Python) and header-based (markdown/text) chunkers
 src/extraction/prompts/ code and text extraction prompts
 src/generate.py         constrained + unconstrained inference
