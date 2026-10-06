@@ -33,8 +33,8 @@ def _device_and_dtype() -> tuple[str, torch.dtype]:
     including_emulation=False: the default (True) counts software-emulated
     bf16, which a T4 would report as supported and wrongly pick over fp16
     """
-    if torch.cuda.is_avalaible():
-        bf16_native = torch.cuda.os_bf16_supported(including_emulation=False)
+    if torch.cuda.is_available():
+        bf16_native = torch.cuda.is_bf16_supported(including_emulation=False)
         dtype = torch.bfloat16 if bf16_native else torch.float16
         return "cuda", dtype
     if torch.backends.mps.is_available():
@@ -51,7 +51,7 @@ def load_hf_model(model: str = DEFAULT_MODEL_NAME, adapter: str | None = None):
         adapter: optional LoRA adapter id or path, applied on top of the
         base for the fine-tuned rows.
 
-    shared by both the constrained path (load_model wraps this in
+    shared by both the constrained path (build_generator wraps this in
     Outlines) and the unconstrained path.
     """
     device, dtype = _device_and_dtype()
@@ -124,7 +124,7 @@ def extract(
         raw decoded text - schema-conforming prefix, but may be truncated
         at max_new_tokens, so not guaranteed to parse.
     """
-    prompt = build_prompt(hf_tokenizer, chunk)
+    prompt = build_chat_prompt(hf_tokenizer, chunk)
     return generator(prompt, max_new_tokens=max_new_tokens)
 
 
@@ -146,7 +146,7 @@ def unconstrained_extract(
     return:
         raw decoded text - no JSON/schema guarantee.
     """
-    prompt = build_prompt(hf_tokenizer, chunk)
+    prompt = build_chat_prompt(hf_tokenizer, chunk)
     model_inputs = hf_tokenizer(prompt, return_tensors="pt").to(hf_model.device)
     output_ids = hf_model.generate(**model_inputs, max_new_tokens=max_new_tokens)
     new_tokens = output_ids[0][
