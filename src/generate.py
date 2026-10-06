@@ -85,14 +85,38 @@ def build_generator(hf_model, hf_tokenizer):
     return outlines.Generator(model, output_type=ExtractionResult)
 
 
+def build_chat_prompt(hf_tokenizer, chunk: Chunk) -> str:
+    """
+    block that display who speaks
+    thinking is off so that we save tokens and we dont break the format
+    example:
+
+    <|im_start|>user
+        [... identical prompt ...]<|im_end|>
+    <|im_start|>assistant
+    <think>
+
+    </think>
+
+    """
+    messages = [{"role": "user", "content": build_prompt(chunk)}]
+    return hf_tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        enable_thinking=False,
+    )
+
+
 def extract(
-    generator, chunk: Chunk, max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS
+    generator, hf_tokenizer, chunk: Chunk, max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS
 ) -> str:
     """
     extract nodes/edges from one chunk
 
     args:
         generator: constrained generator for entities/relationships
+        hf_tokenizer
         chunk: routed to the code/text prompt by chunk.source_type
         max_new_tokens
 
@@ -100,7 +124,7 @@ def extract(
         raw decoded text - schema-conforming prefix, but may be truncated
         at max_new_tokens, so not guaranteed to parse.
     """
-    prompt = build_prompt(chunk)
+    prompt = build_prompt(hf_tokenizer, chunk)
     return generator(prompt, max_new_tokens=max_new_tokens)
 
 
@@ -122,8 +146,8 @@ def unconstrained_extract(
     return:
         raw decoded text - no JSON/schema guarantee.
     """
-    prompt = build_prompt(chunk)
-    model_inputs = hf_tokenizer(prompt, return_tensors="pt")
+    prompt = build_prompt(hf_tokenizer, chunk)
+    model_inputs = hf_tokenizer(prompt, return_tensors="pt").to(hf_model.device)
     output_ids = hf_model.generate(**model_inputs, max_new_tokens=max_new_tokens)
     new_tokens = output_ids[0][
         model_inputs["input_ids"].shape[1] :
