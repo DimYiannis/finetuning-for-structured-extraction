@@ -1,20 +1,18 @@
 from data.schema import ExtractionResult
+from src.chunking.ast_chunker import chunk_python
+from src.chunking.spans import Chunk
 from src.generate import (
     extract,
     unconstrained_extract,
     build_generator,
     load_hf_model,
-    build_chat_prompt,
 )
-from src.chunking.spans import Chunk
 
 
-def validate(Chunk) -> ExtractionResult:
+def validate(raw: str) -> bool:
     from pydantic import ValidationError
 
-    model, tokenizer = load_hf_model()
-    generator = build_generator(model, tokenizer)
-    raw = extract(generator, tokenizer, Chunk)
+    raw = extract(generator, tokenizer, chunk)
 
     try:
         result = ExtractionResult.model_validate(raw)
@@ -22,9 +20,26 @@ def validate(Chunk) -> ExtractionResult:
     except ValidationError as error:
         print(error)
         valid = False
-    finally:
-        return valid
+    return valid
 
+
+def run(chunks: list[Chunk], adapter: str | None = None) -> None:
+    model, tokenizer = load_hf_model()
+    generator = build_generator(model, tokenizer)
+
+    for chunk in chunks:
+        validate(chunk)
+
+
+if __name__ == "__main__":
+    from pathlib import Path
+    from src.chunking.ast_chunker import chunk_python, chunk_lines
+    from src.chunking.plain_chunker import chunk_markdown
+
+    path = "data/raw/vllm-0.10.1/vllm/lora/request.py"
+    chunks = chunk_python(Path(path).read_text(), path)
+
+    run(chunks)
 
 """
 Validity                                                                                                                               
