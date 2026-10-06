@@ -61,8 +61,8 @@ def load_hf_model(model: str = DEFAULT_MODEL_NAME, adapter: str | None = None):
     hf_model.to(device).eval()
 
     # Qwen3 ships a sampling generation_config (temperature/top_p/top_k);
-    # override it on the model so both paths - Outlines calls .generate
-    # with the model's config too - decode greedily.
+    # override it on the model so both paths (Outlines calls .generate
+    # with the model's config too) decode greedily.
     generation_config = hf_model.generation_config
     generation_config.do_sample = False
     generation_config.temperature = None
@@ -73,23 +73,16 @@ def load_hf_model(model: str = DEFAULT_MODEL_NAME, adapter: str | None = None):
     return hf_model, hf_tokenizer
 
 
-def load_model(model: str = DEFAULT_MODEL_NAME):
-    """
-    wrap a Hugging face causal LM in an Outlines model
-    """
-    hf_model, hf_tokenizer = load_hf_model(model)
-    return outlines.from_transformers(hf_model, hf_tokenizer)
-
-
-def build_generator(model):
+def build_generator(hf_model, hf_tokenizer):
     """
     build a reusable constrained generator for ExtractionResults
 
+    wraps the loaded model, so both paths run on the same weights.
     build once, called per chunk, avoids recompiling the FSM
     constraint for every one of all the chunks.
     """
-    generator = outlines.Generator(model, output_type=ExtractionResult)
-    return generator
+    model = outlines.from_transformers(hf_model, hf_tokenizer)
+    return outlines.Generator(model, output_type=ExtractionResult)
 
 
 def extract(
