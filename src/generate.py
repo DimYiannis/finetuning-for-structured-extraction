@@ -10,6 +10,7 @@ can't be trusted to validate here either.
 """
 
 import outlines
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from src.chunking.spans import Chunk
 from src.extraction.prompts import build_prompt
@@ -17,6 +18,27 @@ from data.schema import ExtractionResult
 
 DEFAULT_MODEL_NAME = "Qwen/Qwen3-0.6B"
 DEFAULT_MAX_NEW_TOKENS = 512
+
+
+def _device_and_dtype() -> tuple[str, torch.dtype]:
+    """
+    pick where the model run
+
+    check if hardware suports bf16 else switch to fp16
+    MPS/CPU stay on f32 format.
+
+    a 0.6b model fits either way and fp32 avoids precision suprises
+
+    including_emulation=False: the default (True) counts software-emulated
+    bf16, which a T4 would report as supported and wrongly pick over fp16
+    """
+    if torch.cuda.is_avalaible():
+        bf16_native = torch.cuda.os_bf16_supported(including_emulation=False)
+        dtype = torch.bfloat16 if bf16_native else torch.float16
+        return "cuda", dtype
+    if torch.backends.mps.is_available():
+        return "mps", torch.float32
+    return "cpu", torch.float32
 
 
 def load_hf_model(model: str = DEFAULT_MODEL_NAME):
@@ -94,4 +116,3 @@ def unconstrained_extract(
         model_inputs["input_ids"].shape[1] :
     ]  # return only new generated tokens
     return hf_tokenizer.decode(new_tokens, skip_special_tokens=True)
-
