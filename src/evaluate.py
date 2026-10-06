@@ -12,10 +12,8 @@ from src.generate import (
 def validate(raw: str) -> bool:
     from pydantic import ValidationError
 
-    raw = extract(generator, tokenizer, chunk)
-
     try:
-        result = ExtractionResult.model_validate(raw)
+        result = ExtractionResult.model_validate_json(raw)
         valid = True
     except ValidationError as error:
         print(error)
@@ -28,7 +26,8 @@ def run(chunks: list[Chunk], adapter: str | None = None) -> None:
     generator = build_generator(model, tokenizer)
 
     for chunk in chunks:
-        validate(chunk)
+        raw = extract(generator, tokenizer, chunk)
+        validate(raw)
 
 
 if __name__ == "__main__":
