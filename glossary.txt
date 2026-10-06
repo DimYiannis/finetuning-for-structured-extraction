@@ -1,0 +1,225 @@
+================================================================================
+ GLOSSARY: precision, hardware, and training terms
+================================================================================
+
+Context: "T4 has no native bf16, so CUDA falls back to fp16 there; MPS/CPU stay
+fp32 - a 0.6B model fits either way and fp32 avoids precision surprises."
+
+
+--------------------------------------------------------------------------------
+ 1. NUMBER FORMATS ("precision")
+--------------------------------------------------------------------------------
+
+A model is billions of numbers. Each number is stored in some number of bits.
+Fewer bits = less memory and faster math, but less accuracy.
+
+  fp32   32 bits   (float32, "full precision")
+         Safe default. Precise, wide range. Slow and memory-hungry.
+
+  fp16   16 bits   (float16, "half precision")
+         Half the memory, fast on GPUs. Small range (max ~65,504), so numbers
+         can overflow into inf / NaN.
+
+  bf16   16 bits   (bfloat16, "brain float")
+         Same range as fp32, fewer digits of precision. Very stable for
+         training. Needs newer hardware.
+
+Related terms:
+
+  Range            How big or small a number can get.
+                   fp16 = small range, bf16 = large range.
+  Precision        How many significant digits are kept. bf16 has the least.
+  Overflow         A number is too big to represent -> becomes inf.
+  Underflow        A number is too small to represent -> becomes 0.
+  NaN              "Not a number". The result of broken math. Once it appears
+                   in training it usually spreads and the run is dead.
+
+
+--------------------------------------------------------------------------------
+ 2. HARDWARE
+--------------------------------------------------------------------------------
+
+  GPU              Graphics card used for parallel math. Training runs here.
+  CUDA             NVIDIA's GPU platform. "On CUDA" = "on an NVIDIA GPU".
+  T4               Older, cheap NVIDIA GPU (2018). Colab's free tier gives you
+                   one. No bf16 support.
+  A100 / H100 /    Newer NVIDIA GPUs with native bf16.
+  RTX 30xx+
+  MPS              Metal Performance Shaders: the GPU backend on Apple Silicon
+                   Macs (M1/M2/M3).
+  CPU              The regular processor. Works, but slow for training.
+  Native support   The hardware does the operation directly. Without it, the
+                   operation is emulated or slow.
+  Tensor cores     Special GPU units for fast low-precision matrix math.
+
+
+--------------------------------------------------------------------------------
+ 3. MODEL SIZE AND MEMORY
+--------------------------------------------------------------------------------
+
+  Parameters       The learned numbers inside the model (also: "weights").
+  0.6B             0.6 billion (600M) parameters.
+  Gradients        "How to adjust each weight" values computed during
+                   training. Same memory as the weights.
+  Optimizer state  Extra bookkeeping. Adam keeps 2 more numbers per weight.
+                   Often the biggest memory cost.
+  VRAM             GPU memory. Run out and you get an OOM error.
+  OOM              Out of memory.
+  Unified memory   On Macs, CPU and GPU share one RAM pool.
+
+Memory math:  parameters x bytes per number
+
+  fp32  = 4 bytes   ->  0.6B x 4  =  ~2.4 GB
+  fp16  = 2 bytes   ->  0.6B x 2  =  ~1.2 GB
+  bf16  = 2 bytes   ->  0.6B x 2  =  ~1.2 GB
+
+(Weights only. Gradients and optimizer state add several times more.)
+
+
+--------------------------------------------------------------------------------
+ 4. TRAINING TERMS
+--------------------------------------------------------------------------------
+
+  Fine-tuning      Take a pretrained model and train it a bit more on your
+                   own data.
+  LoRA             Fine-tuning shortcut: train small add-on matrices instead
+                   of all weights. Needs far less memory.
+  Loss             Score for how wrong the model is. Training pushes it down.
+  Loss scaling     (a.k.a. GradScaler) fp16 trick: multiply the loss by a big
+                   number so tiny gradients don't underflow to 0, then undo it
+                   afterward. bf16 doesn't need it.
+  Mixed precision  16-bit for most math, 32-bit for sensitive parts. The usual
+                   way fp16/bf16 training works.
+  HF Trainer       Hugging Face training library. Flags like fp16=True or
+                   bf16=True switch precision on.
+  Falls back       Preferred option unavailable -> use the next one.
+
+
+--------------------------------------------------------------------------------
+ 5. THE ORIGINAL SENTENCE, DECODED
+--------------------------------------------------------------------------------
+
+  CUDA + bf16 supported   ->  bf16
+  CUDA + no bf16 (T4)     ->  fp16
+  MPS / CPU               ->  fp32
+
+In plain words:
+
+  "The T4 GPU has no native bf16, so on NVIDIA we use fp16 there. On Mac or CPU
+   we just use fp32. A 0.6B model is small enough that 32-bit memory use is
+   fine, and fp32 avoids NaN and overflow problems."
+
+Trade-off: fp32 is slower and uses more memory than half precision. For a model
+this small, stability was chosen over speed.
+
+
+--------------------------------------------------------------------------------
+ 6. TRAINING SETTINGS (what the knobs mean)
+--------------------------------------------------------------------------------
+
+Each setting below says what it is, what it costs, and a worked example.
+
+  BATCH SIZE                     (HF name: per_device_train_batch_size)
+      Training looks at examples in groups. With batch size 4, the model reads
+      4 examples at once, averages how wrong it was on them, and makes ONE
+      update to the weights.
+      Bigger batch = smoother updates and a faster pass over the data, but
+      more memory, because activations are kept for every example in the
+      batch. On 8 GB we use 1.
+
+  GRADIENT ACCUMULATION          (HF name: gradient_accumulation_steps)
+      A trick to get the effect of a big batch without the memory cost.
+      With batch size 1 and accumulation 8:
+        1. Process example 1, compute its gradient. Do NOT update yet.
+        2. Process example 2, ADD its gradient to the running total.
+        3. ... repeat until 8 examples have been added up.
+        4. Now update the weights once using the combined gradient, then
+           clear the total and start over.
+      The result is about the same as a real batch of 8, but memory is that
+      of a batch of 1.
+          effective batch size = batch size x accumulation steps = 1 x 8 = 8
+      Cost: no speedup. The 8 examples are still processed one after another.
+      Note: a training "step" in the logs usually means one weight update, so
+      1 step = 8 examples here.
+
+  SEQUENCE LENGTH                (often called max_seq_length)
+      The maximum number of tokens in one training example. Longer examples
+      are cut off (truncated); shorter ones are padded with filler tokens so
+      a batch has equal lengths.
+      Memory grows with length (attention grows faster than linearly), so
+      halving it saves a lot. WATCH OUT: if an example is longer than the
+      limit, the END gets cut. For this project that is the part with the
+      triples, so check your chunk + answer fits in the limit.
+
+  GRADIENT CHECKPOINTING
+      Normally the forward pass stores all activations so the backward pass
+      can compute gradients. Checkpointing stores only some of them and
+      recomputes the rest when needed.
+      Saves a lot of memory. Costs speed (about 20-30% slower, roughly).
+
+  LoRA RANK (r)
+      A big weight matrix W is frozen. LoRA learns the CHANGE to it as two
+      skinny matrices multiplied together: B x A. The rank r is how skinny
+      they are.
+        r = 8   -> very few new parameters, light, less capacity
+        r = 64  -> more parameters, more capacity, more memory, easier to
+                   overfit on a small dataset
+      8-16 is a common starting point for small tasks.
+
+  LoRA ALPHA
+      A scaling factor for the LoRA update. Often set equal to the rank or to
+      2x the rank. Higher alpha = the add-on has more influence.
+
+  TARGET MODULES
+      Which weight matrices get LoRA add-ons.
+        q_proj, k_proj, v_proj, o_proj   attention layers
+        gate_proj, up_proj, down_proj    feed-forward (MLP) layers
+      More modules = more capacity and more memory. q_proj + v_proj is the
+      light option.
+
+  LEARNING RATE
+      How big each weight update is. Too high: loss jumps around or goes NaN.
+      Too low: barely learns. LoRA commonly uses around 1e-4 to 2e-4.
+
+  EPOCH
+      One full pass over the training data. A small dataset usually needs
+      1-3. More epochs risks memorizing the training set (overfitting).
+
+Other terms used above:
+
+  Token            A chunk of text (word piece) the model reads.
+  Activations      Intermediate values kept during the forward pass so
+                   gradients can be computed. Shrink with a smaller batch or
+                   shorter sequences.
+  Gradient         For each weight, "which direction and how much to change
+                   it to reduce the loss".
+  Padding          Filler tokens added so all examples in a batch are the
+                   same length.
+  Truncation       Cutting off tokens beyond the sequence length limit.
+  Adapter          The small LoRA weights on their own (not the full model).
+  Merged model     Base model + adapter combined into one full model.
+
+
+--------------------------------------------------------------------------------
+ 7. SHARING THE RESULT
+--------------------------------------------------------------------------------
+
+  Hugging Face Hub   Free site for hosting models. Standard place to upload.
+  Token (HF)         Your login key for the Hub. Create a "write" token in
+                     your account settings.
+  push_to_hub        transformers/peft call that uploads your model.
+  huggingface-cli    Command-line tool: login, upload.
+  Repo               One model's page/folder on the Hub: username/model-name.
+  GGUF               File format for running models in llama.cpp / Ollama.
+                     Needs a separate conversion step.
+  Quantization       Store weights in fewer bits (e.g. 4-bit) to shrink the
+                     model. Smaller and faster, slightly less accurate.
+
+Approximate sizes for a 0.6B model:
+
+  LoRA adapter only              ~10-100 MB
+  Merged model, bf16/fp16        ~1.2 GB
+  Merged model, fp32             ~2.4 GB
+  4-bit quantized (GGUF)         ~0.4-0.5 GB
+
+Memory to run it later is roughly the file size plus a little overhead.
