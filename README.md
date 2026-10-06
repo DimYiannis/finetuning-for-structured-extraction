@@ -103,3 +103,35 @@ src/extraction/prompts/ code and text extraction prompts
 src/generate.py         constrained + unconstrained inference
 src/build_dataset.py    dataset construction (empty)
 ```
+
+## Sources
+
+For the evaluator (`src/evaluate.py`):
+
+| Topic | Link |
+| --- | --- |
+| Parse and validate JSON with Pydantic (`model_validate_json`) | [Pydantic: JSON](https://docs.pydantic.dev/latest/concepts/json/) |
+| Pydantic models and validation | [Pydantic: Models](https://docs.pydantic.dev/latest/concepts/models/) |
+| `ValidationError`, raised on invalid output | [Pydantic: ValidationError](https://docs.pydantic.dev/latest/api/pydantic_core/#pydantic_core.ValidationError) |
+| Set operations for comparing triple sets | [Python: set types](https://docs.python.org/3/library/stdtypes.html#set-types-set-frozenset) |
+| Precision, recall and F-measure | [scikit-learn: model evaluation](https://scikit-learn.org/stable/modules/model_evaluation.html#precision-recall-f-measure-metrics) |
+| Precision and recall, definitions | [Wikipedia: Precision and recall](https://en.wikipedia.org/wiki/Precision_and_recall) |
+| JSON parsing | [Python: `json`](https://docs.python.org/3/library/json.html) |
+
+For inference (`src/generate.py`):
+
+| Topic | Link |
+| --- | --- |
+| Chat templates, `apply_chat_template` | [Transformers: Chat templating](https://huggingface.co/docs/transformers/chat_templating) |
+| Qwen3 model card (thinking mode, `enable_thinking`) | [Qwen/Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B) |
+| `generate()` and `GenerationConfig` (greedy override) | [Transformers: Text generation](https://huggingface.co/docs/transformers/main_classes/text_generation) |
+| Greedy decoding vs sampling | [Transformers: Generation strategies](https://huggingface.co/docs/transformers/generation_strategies) |
+| Outlines overview | [Outlines docs](https://dottxt-ai.github.io/outlines/latest/) |
+| Wrapping a Hugging Face model (`from_transformers`) | [Outlines: Transformers models](https://dottxt-ai.github.io/outlines/latest/features/models/transformers/) |
+| Constrained generation (`Generator`, `output_type`) | [Outlines: Generator](https://dottxt-ai.github.io/outlines/latest/features/core/generator/) |
+| Outlines source and issues | [dottxt-ai/outlines](https://github.com/dottxt-ai/outlines) |
+| PEFT and LoRA overview | [PEFT docs](https://huggingface.co/docs/peft/index) |
+| Loading an adapter (`PeftModel.from_pretrained`) | [PEFT: PeftModel](https://huggingface.co/docs/peft/package_reference/peft_model) |
+| CUDA availability check | [PyTorch: `torch.cuda.is_available`](https://docs.pytorch.org/docs/stable/generated/torch.cuda.is_available.html) |
+| bf16 support check (`including_emulation`) | [PyTorch: `torch.cuda.is_bf16_supported`](https://docs.pytorch.org/docs/stable/generated/torch.cuda.is_bf16_supported.html) |
+| Apple GPU (MPS) backend | [PyTorch: MPS backend](https://docs.pytorch.org/docs/stable/notes/mps.html) |
