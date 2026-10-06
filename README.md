@@ -49,14 +49,21 @@ Entity names, subjects and targets must match `^[A-Za-z_][A-Za-z0-9_.]*$` — id
 
 ## Inference
 
-`src/generate.py` exposes two paths over the same prompts (`build_prompt` routes by `Chunk.source_type`):
+`src/generate.py` loads the model once (`load_hf_model`, optionally with a LoRA `adapter`) and exposes two paths over it:
 
 | Function | Decoding | Returns |
 | --- | --- | --- |
-| `extract(generator, chunk)` | Outlines FSM over `ExtractionResult` | raw text |
+| `extract(generator, hf_tokenizer, chunk)` | Outlines FSM over `ExtractionResult` | raw text |
 | `unconstrained_extract(hf_model, hf_tokenizer, chunk)` | plain `model.generate` | raw text |
 
 Both return raw text and leave parsing/validation to the evaluator. Constrained decoding only guarantees a schema-valid *prefix*: output truncated at `max_new_tokens` (default 512) is still unparseable JSON, and must be counted as invalid rather than raising or being dropped.
+
+Every row of the comparison uses the same inference setup:
+
+- **Chat template.** The extraction prompt (`build_prompt` routes by `Chunk.source_type`) is sent as a single user turn through Qwen3's chat template — the same format SFT trains on, so train and serve match. This differs from upstream constrained-graphrag, which feeds the prompt as a raw string; the "base + constrained" row is therefore the upstream approach *with* the chat template.
+- **Thinking disabled.** `enable_thinking=False` puts an empty `<think></think>` block in the generation prompt, which is also what the template renders before the answer in non-reasoning training data. The model starts directly at the JSON.
+- **Greedy decoding.** Qwen3's shipped sampling config is overridden (`do_sample=False`) so eval numbers are reproducible.
+- **Device.** CUDA in bf16 where the GPU supports it natively, else fp16 (T4 only emulates bf16); MPS/CPU in fp32.
 
 ## Evaluation plan
 
