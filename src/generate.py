@@ -11,6 +11,7 @@ can't be trusted to validate here either.
 
 import outlines
 import torch
+from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from src.chunking.spans import Chunk
 from src.extraction.prompts import build_prompt
@@ -41,14 +42,33 @@ def _device_and_dtype() -> tuple[str, torch.dtype]:
     return "cpu", torch.float32
 
 
-def load_hf_model(model: str = DEFAULT_MODEL_NAME):
+def load_hf_model(model: str = DEFAULT_MODEL_NAME, adapter: str | None = None):
     """
     load the raw Hugging Face model + tokenizer, once.
+
+    args:
+        hf model
+        adapter: optional LoRA adapter id or path, applied on top of the
+        base for the fine-tuned rows.
 
     shared by both the constrained path (load_model wraps this in
     Outlines) and the unconstrained path.
     """
-    hf_model = AutoModelForCausalLM.from_pretrained(model)
+    device, dtype = _device_and_dtype()
+    hf_model = AutoModelForCausalLM.from_pretrained(model, dtype=dtype)
+    if adapter is not None:
+        hf_model = PeftModel.from_pretrained(hf_model, adapter)
+    hf_model.to(device).eval()
+
+    # Qwen3 ships a sampling generation_config (temperature/top_p/top_k);
+    # override it on the model so both paths - Outlines calls .generate
+    # with the model's config too - decode greedily.
+    generation_config = hf_model.generation_config
+    generation_config.do_sample = False
+    generation_config.temperature = None
+    generation_config.top_p = None
+    generation_config.top_k = None
+
     hf_tokenizer = AutoTokenizer.from_pretrained(model)
     return hf_model, hf_tokenizer
 
