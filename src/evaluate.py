@@ -1,18 +1,14 @@
 """
-Validity
-
- The README defines it as the fraction of outputs that parse as JSON and validate against ExtractionResult, over all eval chunks.
-
-
-
- Your schema is strict: node types and relations are enums, and names must match the identifier regex. So the validator also catches
- invented relation types and multi-word names.
-
- A truncated JSON (generation stopped at max_new_tokens) fails to parse. The README says to count it as invalid, not skip it and not
- let it crash the run.
-
- Precision and recall
-
+- loads the eval split as chunk/gold pairs and runs one setup (base or LoRA,
+constrained or not) on every chunk.
+- Checks whether each output parses into a valid ExtractionResult. an invalid
+output counts as predicting nothing.
+- Turns the output and gold into (subject, relation, target) triple sets and
+counts TP, FP and FN.
+- Sums those counts over all chunks, then reports validity, precision and
+recall.
+- Saves the raw outputs per chunk to outputs.jsonl and the totals to
+metrics.json in the --out folder.
 """
 
 import argparse
@@ -120,6 +116,8 @@ def run(
     # load model
     model, tokenizer = load_hf_model(adapter=adapter)
     generator = build_generator(model, tokenizer) if constrained else None
+
+    # create file if doesnt exist, and edit output file
     out_dir.mkdir(parents=True, exist_ok=True)
     outputs = (out_dir / "outputs.jsonl").open("w")
 
@@ -147,6 +145,7 @@ def run(
         fp_total += fp
         fn_total += fn
 
+        # write one line per chunk to outputs.jsonl
         outputs.write(
             json.dumps(
                 {
@@ -171,6 +170,8 @@ def run(
     validity_rate = valid / len(pairs)
     metrics = {"validity_rate": validity_rate, "precision": precision, "recall": recall}
 
+    # totals are saved, metrics.json holds the three rates plus
+    # which setup ran
     run_info = {
         "adapter": adapter,
         "constrained": constrained,
@@ -187,11 +188,15 @@ def run(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="score one setup on an eval split")
+    # eval file
     parser.add_argument("--split", type=Path, default=Path("data/eval.jsonl"))
+    # output folder
     parser.add_argument(
         "--out", type=Path, required=True, help="e.g. results/base_constrained"
     )
+    # LoRA adapter
     parser.add_argument("--adapter", default=None, help="LoRA adapter id or path")
+    # uncosntrained extract
     parser.add_argument("--unconstrained", action="store_true")
     args = parser.parse_args()
 
