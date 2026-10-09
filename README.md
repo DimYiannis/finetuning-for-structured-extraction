@@ -21,11 +21,13 @@ constrained-graphrag guarantees schema-shaped output by masking logits with an F
 | Here | Upstream |
 | --- | --- |
 | `data/schema.py` | `src/extraction/schema.py` |
-| `src/chunking/` | chunkers (AST for Python, header-based for markdown/text) |
-| `src/extraction/prompts/` | code and text extraction prompts |
+| `src/chunking/` | `src/chunking/` — AST (Python), header-based (markdown/text) and line-window chunkers, `chunk_corpus.py` file routing |
+| `src/extraction/prompts/` | code and text extraction prompts — **rewritten here**, see below |
 | `src/generate.py` → `extract` | `src/extraction/extractor.py` |
 
 New in this repo: `unconstrained_extract` (upstream only ever ran constrained), and `extract` returns raw text instead of a validated object (see [Inference](#inference)).
+
+The prompts diverge from upstream so that the instructions agree with the gold labels ([`data/labeling_guidelines.md`](data/labeling_guidelines.md) v2). Upstream's code example listed only the `CALLS` triple while its own definitions also covered imports (`DEFINED_IN`) and annotations (`REFERENCES`); `REFERENCES` had no defined subject; conventions such as skipping builtins and logging calls were unstated; and prose could use either `REFERENCES` or `RELATES_TO` for the same link. Without the rewrite, part of any fine-tuning gain would be the model learning the labeller's conventions rather than extracting better. Cost: the code prompt grew from 444 to 732 tokens.
 
 ## Schema
 
@@ -60,35 +62,49 @@ Both return raw text and leave parsing/validation to the evaluator. Constrained 
 
 Every row of the comparison uses the same inference setup:
 
-- **Chat template.** The extraction prompt (`build_prompt` routes by `Chunk.source_type`) is sent as a single user turn through Qwen3's chat template — the same format SFT trains on, so train and serve match. This differs from upstream constrained-graphrag, which feeds the prompt as a raw string; the "base + constrained" row is therefore the upstream approach *with* the chat template.
+- **Chat template.** The extraction prompt (`build_prompt` routes by `Chunk.source_type`) is sent as a single user turn through Qwen3's chat template — the same format SFT trains on, so train and serve match. Upstream constrained-graphrag feeds its (older) prompt as a raw string; the "base + constrained" row is therefore upstream's decoding approach with the chat template and the rewritten prompts.
 - **Thinking disabled.** `enable_thinking=False` puts an empty `<think></think>` block in the generation prompt, which is also what the template renders before the answer in non-reasoning training data. The model starts directly at the JSON.
 - **Greedy decoding.** Qwen3's shipped sampling config is overridden (`do_sample=False`) so eval numbers are reproducible.
 - **Device.** CUDA in bf16 where the GPU supports it natively, else fp16 (T4 only emulates bf16); MPS/CPU in fp32.
 
-## Evaluation plan
+## Evaluation
 
 Fixed held-out split (~15%), hand-corrected, reused unchanged for every run.
 
-- **Schema validity rate** — fraction of outputs that parse as JSON *and* validate against `ExtractionResult`, over all eval chunks.
-- **Triple accuracy** — precision/recall over `(subject, relation, target)` triples against the reference.
-- **Mean output length** and failure modes (truncation, parse errors, invalid enum values, hallucinated relations, duplicates).
+- **Schema validity rate** — fraction of outputs that parse as JSON *and* validate against `ExtractionResult`, over all eval chunks. Truncated or otherwise invalid output counts as invalid; it is never skipped.
+- **Triple precision/recall** — over `(subject, relation, target)` triples against the reference, **micro-averaged**: TP/FP/FN are summed over all chunks, then divided once. An invalid output counts as an empty prediction, so it adds its whole gold set to FN (lowers recall) and nothing to FP. When a denominator is 0 the metric is reported as 0.
+- **Failure modes** — inspected from the saved raw outputs (truncation, parse errors, invalid enum values, hallucinated relations, duplicates).
 
-Raw outputs are saved under `results/`, not just aggregates.
+One command per row of the comparison:
+
+```bash
+uv run python -m src.evaluate --out results/base_unconstrained --unconstrained
+uv run python -m src.evaluate --out results/base_constrained
+uv run python -m src.evaluate --out results/finetuned_unconstrained --adapter <hf-id-or-path> --unconstrained
+uv run python -m src.evaluate --out results/finetuned_constrained --adapter <hf-id-or-path>
+```
+
+`--split` defaults to `data/eval.jsonl`. Each run writes `outputs.jsonl` (per chunk: span, raw model text, validity, TP/FP/FN) and `metrics.json` (rates plus totals) to its `--out` directory, so results can be re-scored without re-running the model.
 
 ## Dataset
 
-*Not yet built.* Planned: 300–800 chunks from the constrained-graphrag corpus, candidate labels from a larger model, eval split hand-corrected in full, training split spot-checked. Chat-formatted JSONL:
+*Not yet built.* Planned: 300–800 chunks from the constrained-graphrag corpus, candidate labels from a larger model, eval split hand-corrected in full, training split spot-checked. JSONL, one record per chunk:
 
 ```json
-{"messages": [
+{"chunk": {"file_path": "...", "first": 0, "last": 227, "text": "...", "source_type": "code"},
+ "messages": [
   {"role": "user", "content": "<extraction prompt + chunk>"},
   {"role": "assistant", "content": "<ExtractionResult JSON>"}
 ]}
 ```
 
-The user turn is the exact inference-time prompt from `src/extraction/prompts/`.
+The user turn is the exact inference-time prompt from `src/extraction/prompts/`. `chunk` lets the evaluator rebuild that prompt without the corpus on disk; the assistant turn is the gold reference.
 
-**Corpus:** the same corpus used by constrained-graphrag — [`data/raw/vllm-0.10.1`](https://github.com/DimYiannis/Constrained-GraphRag/tree/47a33e0fdb1790736c18333771c951679e837f8c/data/raw/vllm-0.10.1).
+Gold labels follow [`data/labeling_guidelines.md`](data/labeling_guidelines.md) (v2). The prompts state the same rules in short form; change both together.
+
+`data/sample.jsonl` is a 5-chunk **practice** set (4 code, 1 text) for exercising the evaluator, labelled to the guidelines but not reviewed. No reported number comes from it.
+
+**Corpus:** the same corpus used by constrained-graphrag — [`data/raw/vllm-0.10.1`](https://github.com/DimYiannis/Constrained-GraphRag/tree/47a33e0fdb1790736c18333771c951679e837f8c/data/raw/vllm-0.10.1). `src/chunking/chunk_corpus.py` walks it with the upstream chunking rules: 2,780 files → 28,223 chunks (26,054 code, 2,169 text). Upstream reports 28,246 because its local copy also had the 10 files its own git commit dropped; the full vLLM v0.10.1 release gives exactly 28,246 here too.
 
 ## Setup
 
@@ -105,10 +121,14 @@ Run from the repo root — `data.schema` resolves as a namespace package relativ
 ```
 data/schema.py          node/relation types + ExtractionResult
 data/raw/               source corpus (gitignored; from constrained-graphrag, see Corpus)
-src/chunking/           AST (Python) and header-based (markdown/text) chunkers
+data/labeling_guidelines.md  rules every gold label follows
+data/sample.jsonl       5-chunk practice split
+src/chunking/           AST (Python), header-based (markdown/text) and line-window chunkers; chunk_corpus.py walks the corpus
 src/extraction/prompts/ code and text extraction prompts
 src/generate.py         constrained + unconstrained inference
+src/evaluate.py         validity + micro-averaged triple precision/recall, one setup per run
 src/build_dataset.py    dataset construction (empty)
+tests/                  metric checks on hand-written examples (uv run pytest)
 ```
 
 ## Sources

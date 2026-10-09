@@ -1,9 +1,9 @@
 """
-    extraction prompt for text chunks (Chunk.source_type == "text").
+extraction prompt for text chunks (Chunk.source_type == "text").
 
-    Covers markdown/docs prose AND config/data files (.yaml, .json, .sh, ...)
-    that default to "text" - worded generically enough to degrade
-    reasonably for both, not just narrative prose.
+Covers markdown/docs prose AND config/data files (.yaml, .json, .sh, ...)
+that default to "text" - worded generically enough to degrade
+reasonably for both, not just narrative prose.
 """
 
 TEXT_PROMPT_TEMPLATE = """\
@@ -19,13 +19,21 @@ node_type, not names) and a node_type - one of: \
 Function, Class, Module, Concept, Entity.
 - relationships: how those entities relate to each other, as \
 (subject, relation, target) triples. Valid relations:
-  - REFERENCES: this chunk names a specific function/class/module defined \
-elsewhere in the codebase
-  - RELATES_TO: a general association between two concepts
-  - DEFINED_IN: a component is defined or configured in a module or file
+  - RELATES_TO: the text explicitly links two named things - one uses, \
+configures, requires, enables or belongs to the other. subject is the one \
+that acts (uses, configures, ...).
+  - DEFINED_IN: a component is defined or configured in a named module or \
+file
   - CALLS, IMPORTS, INHERITS_FROM: only use these if the text explicitly \
 describes that code-level relationship (e.g. "X calls Y internally") - \
 most text chunks won't have any of these
+
+Rules:
+- Do not use REFERENCES for text; use RELATES_TO for every explicit link.
+- Both ends of a relationship must be named in the same section (a \
+heading and the text under it).
+- Code snippets inside the text follow the usual code meaning: "from X \
+import Y" gives Y DEFINED_IN X, and a call inside a function gives CALLS.
 
 Example. Given this text:
 
