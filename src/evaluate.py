@@ -15,12 +15,13 @@ Validity
 
 """
 
+import argparse
+import json
 from pathlib import Path
 
 from pydantic import ValidationError
 
 from data.schema import ExtractionResult
-from src.chunking.ast_chunker import chunk_python
 from src.chunking.spans import Chunk
 from src.generate import (
     build_generator,
@@ -68,8 +69,36 @@ def score(
     return (tp, fp, fn)
 
 
+def load_split(path: Path) -> list[tuple[Chunk, ExtractionResult]]:
+    """
+    read an eval split: one JSON object per line,
+
+        {"chunk": {"file_path", "first", "last", "text", "source_type"},
+         "messages": [{"role": "user", ...}, {"role": "assistant", ...}]}
+
+    the chunk is stored next to the chat record so the run can rebuild the
+    exact prompt without the corpus on disk. the assistant
+    message is the hand-corrected gold.
+    it is parsed without a try/except:
+    a gold record that doesn't validate is broken data and must stop the run.
+    """
+    pairs = []
+    with path.open() as f:
+        for line in f:
+            record = json.loads(line)
+            chunk = Chunk(**record["chunk"])
+            gold_result = ExtractionResult.model_validate_json(
+                record["messages"][1]["content"]
+            )
+            pairs.append((chunk, gold_result))
+    return pairs
+
+
 def run(
-    chunks: list[Chunk], adapter: str | None = None, constrained: bool = True
+    pairs: list[tuple[Chunk, ExtractionResult]],
+    out_dir: Path,
+    adapter: str | None = None,
+    constrained: bool = True,
 ) -> dict[str, float]:
     """
     check if chunk is validated, success counts as valid.
@@ -80,27 +109,23 @@ def run(
     - Precision = TP ÷ (TP + FP): of what the model said, how much was right.
     - Recall = TP ÷ (TP + FN): of what was there, how much the model found.
 
+    raw outputs go to out_dir/outputs.jsonl (one line per chunk) and the
+    aggregates to out_dir/metrics.json, so a run can be re-scored or
+    inspected for failure modes without running the model again.
     """
-    # golden example
-    gold_result = ExtractionResult(
-        entities=[],
-        relationships=[
-            {"subject": "resolve", "relation": "CALLS", "target": "validate"},
-            {"subject": "LoRAResolver", "relation": "DEFINED_IN", "target": "resolver"},
-        ],
-    )
-
     # if we dont have any chunks raise error
-    if not chunks:
+    if not pairs:
         raise ValueError("No chunks provided")
 
     # load model
     model, tokenizer = load_hf_model(adapter=adapter)
     generator = build_generator(model, tokenizer) if constrained else None
+    out_dir.mkdir(parents=True, exist_ok=True)
+    outputs = (out_dir / "outputs.jsonl").open("w")
 
     # check for validity
     valid = tp_total = fp_total = fn_total = 0
-    for chunk in chunks:
+    for chunk, gold_result in pairs:
         if constrained:
             raw = extract(generator, tokenizer, chunk)
         else:
@@ -122,15 +147,60 @@ def run(
         fp_total += fp
         fn_total += fn
 
+        outputs.write(
+            json.dumps(
+                {
+                    "file_path": chunk.file_path,
+                    "first": chunk.first,
+                    "last": chunk.last,
+                    "raw": raw,
+                    "valid": result is not None,
+                    "tp": tp,
+                    "fp": fp,
+                    "fn": fn,
+                }
+            )
+            + "\n"
+        )
+    outputs.close()
+
     precision = tp_total / (tp_total + fp_total) if tp_total + fp_total else 0.0
     recall = tp_total / (tp_total + fn_total) if tp_total + fn_total else 0.0
 
     # validity rate
-    validity_rate = valid / len(chunks)
-    return {"validity_rate": validity_rate, "precision": precision, "recall": recall}
+    validity_rate = valid / len(pairs)
+    metrics = {"validity_rate": validity_rate, "precision": precision, "recall": recall}
+
+    run_info = {
+        "adapter": adapter,
+        "constrained": constrained,
+        "chunks": len(pairs),
+        "tp": tp_total,
+        "fp": fp_total,
+        "fn": fn_total,
+    }
+    (out_dir / "metrics.json").write_text(
+        json.dumps(metrics | run_info, indent=2) + "\n"
+    )
+    return metrics
 
 
 if __name__ == "__main__":
-    path = "data/raw/vllm-0.10.1/vllm/lora/request.py"
-    chunks = chunk_python(Path(path).read_text(), path)
-    print(f"validity: {run(chunks):.2%}")
+    parser = argparse.ArgumentParser(description="score one setup on an eval split")
+    parser.add_argument("--split", type=Path, default=Path("data/eval.jsonl"))
+    parser.add_argument(
+        "--out", type=Path, required=True, help="e.g. results/base_constrained"
+    )
+    parser.add_argument("--adapter", default=None, help="LoRA adapter id or path")
+    parser.add_argument("--unconstrained", action="store_true")
+    args = parser.parse_args()
+
+    metrics = run(
+        load_split(args.split),
+        args.out,
+        adapter=args.adapter,
+        constrained=not args.unconstrained,
+    )
+    print(f"validity:  {metrics['validity_rate']:.2%}")
+    print(f"precision: {metrics['precision']:.2%}")
+    print(f"recall:    {metrics['recall']:.2%}")
