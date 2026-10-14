@@ -13,7 +13,7 @@ documentation prose, or a structured file such as configuration or data.
 Identify:
 - entities: named concepts, components, or things discussed in this \
 chunk. Give each a name (the actual name as it appears in the text, e.g. \
-"LoRAConfig", "enable_lora" - never the literal words "Function", "Class", \
+"PrefetchConfig", "start_prefetch" - never the literal words "Function", "Class", \
 "Module", "Concept", or "Entity", which are only the allowed values for \
 node_type, not names) and a node_type - one of: \
 Function, Class, Module, Concept, Entity.
@@ -37,13 +37,13 @@ import Y" gives Y DEFINED_IN X, and a call inside a function gives CALLS.
 
 Example. Given this text:
 
-    LoRA adapters are configured via LoRAConfig, which enable_lora() uses \
-to set up adapter weights.
+    Page prefetching is configured via PrefetchConfig, which \
+start_prefetch() uses to size its read-ahead buffer.
 
 Correct extraction:
-  entities: [{{"name": "LoRAConfig", "node_type": "Class"}}, \
-{{"name": "enable_lora", "node_type": "Function"}}]
-  relationships: [{{"subject": "enable_lora", "relation": "RELATES_TO", "target": "LoRAConfig"}}]
+  entities: [{{"name": "PrefetchConfig", "node_type": "Class"}}, \
+{{"name": "start_prefetch", "node_type": "Function"}}]
+  relationships: [{{"subject": "start_prefetch", "relation": "RELATES_TO", "target": "PrefetchConfig"}}]
 
 Only extract entities and relationships actually present in the text chunk \
 below - never reuse names from the example above, that example is not part \

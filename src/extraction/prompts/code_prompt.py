@@ -14,7 +14,7 @@ You are extracting a knowledge graph from a chunk of source code.
 Identify:
 - entities: functions, classes, modules, or other named things defined or \
 used in this chunk. Give each a name (the actual identifier as it appears \
-in the code, e.g. "LoRARequest", "encode" - never the literal words \
+in the code, e.g. "TokenCache", "fetch_page" - never the literal words \
 "Function", "Class", "Module", "Concept", or "Entity", which are only the \
 allowed values for node_type, not names) and a node_type - one of: \
 Function, Class, Module, Concept, Entity.
@@ -47,21 +47,21 @@ dotted name as written: "os.path.join".
 
 Example. Given this code:
 
-    from vllm.lora.request import LoRARequest
+    from pagestore.backend import PageStore
 
-    class LoRAResolver:
-        def resolve(self, request: LoRARequest):
-            return request.validate()
+    class TokenCache:
+        def fetch_page(self, store: PageStore):
+            return store.load_page()
 
 Correct extraction:
-  entities: [{{"name": "LoRARequest", "node_type": "Class"}}, \
-{{"name": "vllm.lora.request", "node_type": "Module"}}, \
-{{"name": "LoRAResolver", "node_type": "Class"}}, \
-{{"name": "resolve", "node_type": "Function"}}, \
-{{"name": "validate", "node_type": "Function"}}]
-  relationships: [{{"subject": "LoRARequest", "relation": "DEFINED_IN", "target": "vllm.lora.request"}}, \
-{{"subject": "resolve", "relation": "REFERENCES", "target": "LoRARequest"}}, \
-{{"subject": "resolve", "relation": "CALLS", "target": "validate"}}]
+  entities: [{{"name": "PageStore", "node_type": "Class"}}, \
+{{"name": "pagestore.backend", "node_type": "Module"}}, \
+{{"name": "TokenCache", "node_type": "Class"}}, \
+{{"name": "fetch_page", "node_type": "Function"}}, \
+{{"name": "load_page", "node_type": "Function"}}]
+  relationships: [{{"subject": "PageStore", "relation": "DEFINED_IN", "target": "pagestore.backend"}}, \
+{{"subject": "fetch_page", "relation": "REFERENCES", "target": "PageStore"}}, \
+{{"subject": "fetch_page", "relation": "CALLS", "target": "load_page"}}]
 
 Only extract entities and relationships actually present in the code chunk \
 below - never reuse names from the example above, that example is not part \
