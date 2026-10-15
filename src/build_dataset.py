@@ -13,7 +13,8 @@ from src.extraction.prompts import build_prompt
 from src.generate import build_chat_prompt
 
 SEED = 0
-
+MIN_CHARS = 100
+MAX_PROMPT_TOKENS = 1700
 
 def group(chunk) -> str:
     """
@@ -31,7 +32,25 @@ def group(chunk) -> str:
 
 
 def keep(chunk, tokenizer) -> bool:
-    # filters
+    """
+        determine whether a chunk
+        is worth putting in the dataset
+    """
+    # check if its only comments
+    lines = [line.strip() for line in chunk.text.splitlines() if line.strip()]
+    if all(line.startswith("#") for line in lines):
+        only_comments = True
+
+    if group(chunk) == "json":
+        return False
+    if group(chunk) == "python" and only_commmets:
+        return False
+    if len("".join(chunk.text.split())) < MIN_CHARS:
+        return False
+    if len(tokenizer(build_chat_prompt(tokenizer, chunk))["input_ids"]) > MAX_PROMPT_TOKENS:
+        return False
+    return True
+
 
 def split_files(chunks) -> tuple[set, set]:
 
@@ -44,4 +63,13 @@ def write(path, chunks) -> None:
 
 if __name__ == "__main__":
     chunks = chunk_corpus(Path("data/raw/vllm-0.10.1"))
+    
+    buckets = {}
+    for c in chunks:
+        label = group(c)
+        if label not in buckets:
+            buckets[label] = []          # first chunk of this group: make its list
+        buckets[label].append(c)
+    AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B").
+    kept = [c for c in chunks if keep(c, tokenizer)]
 
